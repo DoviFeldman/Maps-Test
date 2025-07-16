@@ -1,0 +1,198 @@
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple OSM Router - Deal, NJ</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" integrity="sha512-xodZBNTC5n17Xt2atTPuE1HxjVMSvLVW9ocqUKLsCC5CXdbqCmblAshOMAS6/keqq/sMZMZ19scR4PsZChSR7A==" crossorigin=""/>
+    <style>
+        body { margin: 0; font-family: Arial, sans-serif; }
+        #map { height: 400px; width: 100%; }
+        #controls { padding: 10px; }
+        input, button { margin: 5px; }
+    </style>
+</head>
+<body>
+    <div id="controls">
+        <h1>Simple OSM Router</h1>
+        <p>Upload an OSM file for your area (e.g., Deal, NJ). Enter start and end as "lat,lon" (e.g., "40.303,-73.992"). To edit for another city: Change the map.setView coordinates in the script below (search for "setView"). Download OSM files from BBBike or Geofabrik.</p>
+        <input type="file" id="osmFile" accept=".osm,.xml">
+        <input id="start" placeholder="Start lat,lon (e.g., 40.303,-73.992)">
+        <input id="end" placeholder="End lat,lon (e.g., 40.305,-73.990)">
+        <button onclick="computeRoute()">Find Route</button>
+    </div>
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js" integrity="sha512-XQoYMqMTK8LvdxXYG3nZ448hOEQiglfqkJs1NOQV44cWobsnzO6p9z7MzeYqb2499/qfxf88ul46aSwxGV7axQ==" crossorigin=""></script>
+    <script>
+        // Map setup (edit setView for different city center/zoom; e.g., for NYC: [40.7128, -74.0060], 12)
+        const map = L.map('map').setView([40.303, -73.992], 14); // Default: Deal, NJ area
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        let parsedData = null; // To store nodes and graph
+
+        // Haversine distance (in meters)
+        function distance(coord1, coord2) {
+            const R = 6371000; // Earth radius
+            const dLat = (coord2.lat - coord1.lat) * Math.PI / 180;
+            const dLon = (coord2.lon - coord1.lon) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(coord1.lat * Math.PI / 180) * Math.cos(coord2.lat * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        // Parse OSM XML
+        function parseOSM(xml) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(xml, "text/xml");
+            const nodes = {};
+            const ways = [];
+            const nodeElements = doc.getElementsByTagName('node');
+            for (let node of nodeElements) {
+                const id = node.getAttribute('id');
+                nodes[id] = {
+                    lat: parseFloat(node.getAttribute('lat')),
+                    lon: parseFloat(node.getAttribute('lon'))
+                };
+            }
+            const wayElements = doc.getElementsByTagName('way');
+            for (let way of wayElements) {
+                let isHighway = false;
+                const tags = way.getElementsByTagName('tag');
+                for (let tag of tags) {
+                    if (tag.getAttribute('k') === 'highway') {
+                        isHighway = true;
+                        break;
+                    }
+                }
+                if (isHighway) {
+                    const nds = way.getElementsByTagName('nd');
+                    const wayNodes = [];
+                    for (let nd of nds) {
+                        wayNodes.push(nd.getAttribute('ref'));
+                    }
+                    if (wayNodes.length > 1) ways.push(wayNodes);
+                }
+            }
+            const graph = {};
+            for (let way of ways) {
+                for (let i = 0; i < way.length - 1; i++) {
+                    const a = way[i];
+                    const b = way[i + 1];
+                    if (!graph[a]) graph[a] = [];
+                    if (!graph[b]) graph[b] = [];
+                    const dist = distance(nodes[a], nodes[b]);
+                    graph[a].push({ to: b, dist });
+                    graph[b].push({ to: a, dist }); // Undirected
+                }
+            }
+            return { nodes, graph };
+        }
+
+        // Find nearest node to a lat/lon
+        function findNearestNode(nodes, lat, lon) {
+            let minDist = Infinity;
+            let nearest = null;
+            for (let id in nodes) {
+                const d = distance(nodes[id], { lat, lon });
+                if (d < minDist) {
+                    minDist = d;
+                    nearest = id;
+                }
+            }
+            return nearest;
+        }
+
+        // Simple Dijkstra (using array as priority queue - fine for small maps)
+        function dijkstra(graph, start, end) {
+            const distances = {};
+            const previous = {};
+            let pq = [];
+            for (let node in graph) {
+                distances[node] = Infinity;
+            }
+            distances[start] = 0;
+            pq.push({ node: start, dist: 0 });
+            const visited = new Set();
+            while (pq.length) {
+                pq.sort((a, b) => a.dist - b.dist);
+                const current = pq.shift();
+                if (visited.has(current.node)) continue;
+                visited.add(current.node);
+                if (current.node === end) break;
+                if (!graph[current.node]) continue;
+                for (let neighbor of graph[current.node]) {
+                    const alt = distances[current.node] + neighbor.dist;
+                    if (alt < distances[neighbor.to]) {
+                        distances[neighbor.to] = alt;
+                        previous[neighbor.to] = current.node;
+                        pq.push({ node: neighbor.to, dist: alt });
+                    }
+                }
+            }
+            const path = [];
+            let u = end;
+            while (u !== undefined) {
+                path.push(u);
+                u = previous[u];
+            }
+            path.reverse();
+            if (path[0] !== start) return []; // No path
+            return path;
+        }
+
+        // Main function to compute and draw route
+        function computeRoute() {
+            const fileInput = document.getElementById('osmFile');
+            if (!fileInput.files.length && !parsedData) {
+                alert('Please upload an OSM file first.');
+                return;
+            }
+            const startStr = document.getElementById('start').value;
+            const endStr = document.getElementById('end').value;
+            if (!startStr || !endStr) {
+                alert('Enter start and end lat,lon.');
+                return;
+            }
+            const [startLat, startLon] = startStr.split(',').map(Number);
+            const [endLat, endLon] = endStr.split(',').map(Number);
+
+            if (!parsedData) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    parsedData = parseOSM(e.target.result);
+                    drawRoute(startLat, startLon, endLat, endLon);
+                };
+                reader.readAsText(fileInput.files[0]);
+            } else {
+                drawRoute(startLat, startLon, endLat, endLon);
+            }
+        }
+
+        function drawRoute(startLat, startLon, endLat, endLon) {
+            const { nodes, graph } = parsedData;
+            const startNode = findNearestNode(nodes, startLat, startLon);
+            const endNode = findNearestNode(nodes, endLat, endLon);
+            if (!startNode || !endNode) {
+                alert('No nodes found in map.');
+                return;
+            }
+            const path = dijkstra(graph, startNode, endNode);
+            if (path.length === 0) {
+                alert('No route found.');
+                return;
+            }
+            const pathCoords = path.map(id => [nodes[id].lat, nodes[id].lon]);
+            map.eachLayer(layer => { if (layer instanceof L.Polyline) map.removeLayer(layer); });
+            L.polyline(pathCoords, { color: 'blue' }).addTo(map);
+            map.fitBounds(L.polyline(pathCoords).getBounds());
+            L.marker([startLat, startLon]).addTo(map).bindPopup('Start');
+            L.marker([endLat, endLon]).addTo(map).bindPopup('End');
+        }
+    </script>
+</body>
+</html>
+```
