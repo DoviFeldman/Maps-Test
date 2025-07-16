@@ -1,0 +1,26 @@
+Grok 4 had no instruction, just comments in the code, interesting.
+
+
+This single HTML file creates a simple routing application that:
+
+Works immediately - Just save it as index.html and upload to GitHub Pages
+Uses OpenStreetMap data - No need to upload OSM files; it uses online OSM tiles and routing
+Simple interface - Click once for start point (green marker), click again for end point (red marker)
+Automatic routing - Routes appear automatically after setting both points
+City search - Change the city by typing a name and clicking "Change City"
+Clear function - Reset everything with the "Clear Route" button
+To use on GitHub Pages:
+
+Create a new GitHub repository
+Save this code as index.html
+Upload it to your repository
+Go to Settings → Pages → Enable GitHub Pages from main branch
+Your app will be live at https://[your-username].github.io/[repository-name]/
+Important notes:
+
+This uses online routing (OSRM servers), not offline OSM files, because true offline routing in a browser is complex and requires large preprocessing
+The routing is free and uses OpenStreetMap data
+It works on any device with internet
+The map starts centered on Deal, NJ but you can change to any city
+The app is intentionally kept simple - just click twice to get a route. The routing uses real road networks and provides turn-by-turn directions in the panel that appears.
+
