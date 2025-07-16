@@ -175,7 +175,8 @@
                     createMarker: function() { return null; }, // Don't create additional markers
                     lineOptions: {
                         styles: [{ color: '#4CAF50', weight: 6, opacity: 0.8 }]
-                    }
+                    },
+                    position: 'bottomright',
                 }).addTo(map);
                 
                 document.getElementById('status').innerHTML = 'Route calculated!';
