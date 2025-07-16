@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple OSM Router</title>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <!-- Leaflet Routing Machine CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+    
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+        
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+        
+        .controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: white;
+            padding: 15px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            z-index: 1000;
+            max-width: 300px;
+        }
+        
+        .controls h3 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+        }
+        
+        .controls input, .controls button {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            box-sizing: border-box;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+        }
+        
+        .controls button {
+            background: #4CAF50;
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        .controls button:hover {
+            background: #45a049;
+        }
+        
+        .instructions {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #666;
+            line-height: 1.4;
+        }
+        
+        #status {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    
+    <div class="controls">
+        <h3>Simple Route Finder</h3>
+        <input type="text" id="cityName" placeholder="City, State" value="Deal, NJ">
+        <button onclick="updateCity()">Change City</button>
+        <button onclick="clearRoute()">Clear Route</button>
+        
+        <div class="instructions">
+            <strong>How to use:</strong><br>
+            1. Click on the map to set start point (green)<br>
+            2. Click again to set end point (red)<br>
+            3. Route will appear automatically<br>
+            4. Click "Clear Route" to start over
+        </div>
+        
+        <div id="status"></div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- Leaflet Routing Machine JS -->
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+    
+    <script>
+        // Initialize map centered on Deal, NJ
+        let map = L.map('map').setView([40.2496, -74.0018], 14);
+        
+        // Add OpenStreetMap tiles
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+        
+        // Variables to store markers and routing
+        let startMarker = null;
+        let endMarker = null;
+        let routeControl = null;
+        let clickCount = 0;
+        
+        // Function to update city
+        function updateCity() {
+            const cityName = document.getElementById('cityName').value;
+            
+            // Use Nominatim API to geocode the city
+            fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityName)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data && data.length > 0) {
+                        const lat = parseFloat(data[0].lat);
+                        const lon = parseFloat(data[0].lon);
+                        map.setView([lat, lon], 14);
+                        document.getElementById('status').innerHTML = `<span style="color: green;">✓ Found ${cityName}</span>`;
+                        clearRoute();
+                    } else {
+                        document.getElementById('status').innerHTML = `<span style="color: red;">✗ City not found</span>`;
+                    }
+                })
+                .catch(error => {
+                    document.getElementById('status').innerHTML = `<span style="color: red;">✗ Error finding city</span>`;
+                });
+        }
+        
+        // Function to clear route and markers
+        function clearRoute() {
+            if (startMarker) {
+                map.removeLayer(startMarker);
+                startMarker = null;
+            }
+            if (endMarker) {
+                map.removeLayer(endMarker);
+                endMarker = null;
+            }
+            if (routeControl) {
+                map.removeControl(routeControl);
+                routeControl = null;
+            }
+            clickCount = 0;
+            document.getElementById('status').innerHTML = 'Click map to set start point';
+        }
+        
+        // Function to calculate and display route
+        function calculateRoute() {
+            if (startMarker && endMarker) {
+                // Remove existing route if any
+                if (routeControl) {
+                    map.removeControl(routeControl);
+                }
+                
+                // Create routing control
+                routeControl = L.Routing.control({
+                    waypoints: [
+                        startMarker.getLatLng(),
+                        endMarker.getLatLng()
+                    ],
+                    routeWhileDragging: false,
+                    addWaypoints: false,
+                    createMarker: function() { return null; }, // Don't create additional markers
+                    lineOptions: {
+                        styles: [{ color: '#4CAF50', weight: 6, opacity: 0.8 }]
+                    }
+                }).addTo(map);
+                
+                document.getElementById('status').innerHTML = 'Route calculated!';
+            }
+        }
+        
+        // Handle map clicks
+        map.on('click', function(e) {
+            clickCount++;
+            
+            if (clickCount === 1) {
+                // First click - set start point
+                if (startMarker) {
+                    map.removeLayer(startMarker);
+                }
+                startMarker = L.marker(e.latlng, {
+                    icon: L.icon({
+                        iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
+                        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                        iconSize: [25, 41],
+                        iconAnchor: [12, 41],
+                        popupAnchor: [1, -34],
+                        shadowSize: [41, 41]
+                    })
+                }).addTo(map);
+                startMarker.bindPopup('Start Point').openPopup();
+                document.getElementById('status').innerHTML = 'Click map to set end point';
+                
+            } else if (clickCount === 2) {
+                // Second click - set end point and calculate route
+                if (endMarker) {
+                    map.removeLayer(endMarker);
+                }
+                endMarker = L.marker(e.latlng, {
+                    icon: L.icon({
+                        iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+                        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                        iconSize: [25, 41],
+                        iconAnchor: [12, 41],
+                        popupAnchor: [1, -34],
+                        shadowSize: [41, 41]
+                    })
+                }).addTo(map);
+                endMarker.bindPopup('End Point').openPopup();
+                
+                // Calculate route
+                calculateRoute();
+                
+            } else {
+                // Reset for new route
+                clearRoute();
+                clickCount = 1;
+                
+                startMarker = L.marker(e.latlng, {
+                    icon: L.icon({
+                        iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
+                        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                        iconSize: [25, 41],
+                        iconAnchor: [12, 41],
+                        popupAnchor: [1, -34],
+                        shadowSize: [41, 41]
+                    })
+                }).addTo(map);
+                startMarker.bindPopup('Start Point').openPopup();
+                document.getElementById('status').innerHTML = 'Click map to set end point';
+            }
+        });
+        
+        // Initial status
+        document.getElementById('status').innerHTML = 'Click map to set start point';
+    </script>
+</body>
+</html>
